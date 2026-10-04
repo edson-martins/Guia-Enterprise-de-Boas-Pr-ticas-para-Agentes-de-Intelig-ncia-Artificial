@@ -1,0 +1,119 @@
+{
+  "name": "Guia Enterprise — 09. Cache de FreeBusy (Redis)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "freebusy-consultar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Consultar Disponibilidade (usado como Tool)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 300]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "=freebusy:{{$json.body.calendar_id}}:{{$json.body.data}}",
+        "options": {}
+      },
+      "id": "n2-redis-get",
+      "name": "Redis - Buscar Cache",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [-180, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            { "leftValue": "={{$json.propertyName}}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n3-if-cache-valido",
+      "name": "IF - Cache Existe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [40, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"timeMin\": $json.body.data + \"T00:00:00-03:00\", \"timeMax\": $json.body.data + \"T23:59:59-03:00\", \"items\": [{ \"id\": $json.body.calendar_id }] } }}",
+        "options": {}
+      },
+      "id": "n4-http-freebusy",
+      "name": "HTTP - Google Calendar FreeBusy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 420]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=freebusy:{{$node[\"Webhook - Consultar Disponibilidade (usado como Tool)\"].json.body.calendar_id}}:{{$node[\"Webhook - Consultar Disponibilidade (usado como Tool)\"].json.body.data}}",
+        "value": "={{JSON.stringify($json.calendars)}}",
+        "expire": true,
+        "ttl": 300
+      },
+      "id": "n5-redis-set",
+      "name": "Redis - Gravar Cache (TTL 5min)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [480, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"origem\": \"cache\", \"disponibilidade\": JSON.parse($json.propertyName ? $json.value : '{}') } }}",
+        "options": {}
+      },
+      "id": "n6-respond-cache",
+      "name": "Responder - Do Cache",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [260, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"origem\": \"api\", \"disponibilidade\": $json.calendars } }}",
+        "options": {}
+      },
+      "id": "n7-respond-api",
+      "name": "Responder - Da API",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [700, 420]
+    }
+  ],
+  "connections": {
+    "Webhook - Consultar Disponibilidade (usado como Tool)": { "main": [[{ "node": "Redis - Buscar Cache", "type": "main", "index": 0 }]] },
+    "Redis - Buscar Cache": { "main": [[{ "node": "IF - Cache Existe?", "type": "main", "index": 0 }]] },
+    "IF - Cache Existe?": {
+      "main": [
+        [{ "node": "Responder - Do Cache", "type": "main", "index": 0 }],
+        [{ "node": "HTTP - Google Calendar FreeBusy", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP - Google Calendar FreeBusy": { "main": [[{ "node": "Redis - Gravar Cache (TTL 5min)", "type": "main", "index": 0 }]] },
+    "Redis - Gravar Cache (TTL 5min)": { "main": [[{ "node": "Responder - Da API", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "note": "TTL de 5 minutos equilibra atualidade e economia de chamadas à API do Google Calendar. Ajuste conforme o volume de consultas simultâneas do seu agente."
+  }
+}

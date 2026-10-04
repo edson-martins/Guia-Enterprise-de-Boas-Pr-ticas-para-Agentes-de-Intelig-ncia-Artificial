@@ -1,0 +1,76 @@
+{
+  "name": "Guia Enterprise — 08. Lembretes de Agendamento",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] }
+      },
+      "id": "n1-schedule",
+      "name": "Schedule - A Cada 30 Minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-400, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, chat_id, patient_name, appointment_at, calendar_event_id, business_id\nFROM appointments\nWHERE status = 'agendado'\n  AND reminder_sent_at IS NULL\n  AND appointment_at BETWEEN now() + interval '23 hours' AND now() + interval '25 hours'",
+        "options": {}
+      },
+      "id": "n2-pg-buscar-proximos",
+      "name": "Postgres - Buscar Agendamentos Próximos (24h)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-180, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "id": "n3-loop",
+      "name": "Loop - Um Agendamento Por Vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [40, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "X-Api-Key", "value": "={{$env.WAHA_API_KEY}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $env.WAHA_DEFAULT_SESSION, \"chatId\": $json.chat_id, \"text\": \"Olá \" + $json.patient_name + \"! Passando pra lembrar da sua consulta amanhã, \" + $json.appointment_at + \". Se precisar remarcar ou cancelar, é só me avisar por aqui.\" } }}",
+        "options": {}
+      },
+      "id": "n4-http-lembrete",
+      "name": "HTTP - WAHA Enviar Lembrete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 220]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE appointments SET reminder_sent_at = now() WHERE id = {{$json.id}}",
+        "options": {}
+      },
+      "id": "n5-pg-marcar-enviado",
+      "name": "Postgres - Marcar Lembrete Enviado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 220]
+    }
+  ],
+  "connections": {
+    "Schedule - A Cada 30 Minutos": { "main": [[{ "node": "Postgres - Buscar Agendamentos Próximos (24h)", "type": "main", "index": 0 }]] },
+    "Postgres - Buscar Agendamentos Próximos (24h)": { "main": [[{ "node": "Loop - Um Agendamento Por Vez", "type": "main", "index": 0 }]] },
+    "Loop - Um Agendamento Por Vez": { "main": [[], [{ "node": "HTTP - WAHA Enviar Lembrete", "type": "main", "index": 0 }]] },
+    "HTTP - WAHA Enviar Lembrete": { "main": [[{ "node": "Postgres - Marcar Lembrete Enviado", "type": "main", "index": 0 }]] },
+    "Postgres - Marcar Lembrete Enviado": { "main": [[{ "node": "Loop - Um Agendamento Por Vez", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "note": "A janela de 23-25h evita enviar lembrete duas vezes já que o schedule roda a cada 30 min. Ajuste os intervalos conforme a janela de antecedência que fizer sentido pro seu negócio."
+  }
+}

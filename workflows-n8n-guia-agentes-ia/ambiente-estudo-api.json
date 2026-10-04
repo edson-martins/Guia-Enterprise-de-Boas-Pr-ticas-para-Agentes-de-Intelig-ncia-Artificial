@@ -1,0 +1,174 @@
+{
+  "name": "Guia Enterprise — 00. API de Estudo (companion)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "business-info/:business_id",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook-info",
+      "name": "Webhook - GET business-info",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-600, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT business_id, nome, endereco, horario_funcionamento, telefone_contato FROM business WHERE business_id = {{$json.params.business_id}}",
+        "options": {}
+      },
+      "id": "n2-pg-info",
+      "name": "Postgres - Buscar Info do Negócio",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-380, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "n3-respond-info",
+      "name": "Responder - Info do Negócio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-160, 100]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n4-webhook-leads",
+      "name": "Webhook - POST leads",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-600, 260]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO leads (chat_id, nome, empresa, cargo, necessidade, prazo)\nVALUES ('{{$json.body.chat_id}}', '{{$json.body.nome}}', '{{$json.body.empresa}}', '{{$json.body.cargo}}', '{{$json.body.necessidade}}', '{{$json.body.prazo}}')\nRETURNING id",
+        "options": {}
+      },
+      "id": "n5-pg-lead",
+      "name": "Postgres - Inserir Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-380, 260]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"lead_id\": $json.id } }}",
+        "options": {}
+      },
+      "id": "n6-respond-leads",
+      "name": "Responder - Lead Salvo",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-160, 260]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointments",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n7-webhook-criar",
+      "name": "Webhook - POST appointments",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-600, 420]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO appointments (business_id, chat_id, patient_name, specialty, appointment_at, status)\nVALUES ({{$env.DEFAULT_BUSINESS_ID}}, '{{$json.body.chat_id}}', '{{$json.body.patient_name}}', '{{$json.body.specialty}}', '{{$json.body.appointment_at}}', 'agendado')\nRETURNING id, appointment_at",
+        "options": {}
+      },
+      "id": "n8-pg-criar",
+      "name": "Postgres - Criar Agendamento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-380, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"appointment_id\": $json.id, \"appointment_at\": $json.appointment_at } }}",
+        "options": {}
+      },
+      "id": "n9-respond-criar",
+      "name": "Responder - Agendamento Criado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-160, 420]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "PATCH",
+        "path": "appointments/cancel",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n10-webhook-cancelar",
+      "name": "Webhook - PATCH appointments/cancel",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-600, 580]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE appointments\nSET status = 'cancelado'\nWHERE (\n  {{$json.body.appointment_id}}::text IS NOT NULL AND id = NULLIF('{{$json.body.appointment_id}}', '')::bigint\n) OR (\n  chat_id = '{{$json.body.chat_id}}' AND status = 'agendado'\n)\nRETURNING id",
+        "options": {}
+      },
+      "id": "n11-pg-cancelar",
+      "name": "Postgres - Cancelar Agendamento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-380, 580]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"cancelados\": $input.all().map(i => i.json.id) } }}",
+        "options": {}
+      },
+      "id": "n12-respond-cancelar",
+      "name": "Responder - Agendamento Cancelado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-160, 580]
+    }
+  ],
+  "connections": {
+    "Webhook - GET business-info": { "main": [[{ "node": "Postgres - Buscar Info do Negócio", "type": "main", "index": 0 }]] },
+    "Postgres - Buscar Info do Negócio": { "main": [[{ "node": "Responder - Info do Negócio", "type": "main", "index": 0 }]] },
+
+    "Webhook - POST leads": { "main": [[{ "node": "Postgres - Inserir Lead", "type": "main", "index": 0 }]] },
+    "Postgres - Inserir Lead": { "main": [[{ "node": "Responder - Lead Salvo", "type": "main", "index": 0 }]] },
+
+    "Webhook - POST appointments": { "main": [[{ "node": "Postgres - Criar Agendamento", "type": "main", "index": 0 }]] },
+    "Postgres - Criar Agendamento": { "main": [[{ "node": "Responder - Agendamento Criado", "type": "main", "index": 0 }]] },
+
+    "Webhook - PATCH appointments/cancel": { "main": [[{ "node": "Postgres - Cancelar Agendamento", "type": "main", "index": 0 }]] },
+    "Postgres - Cancelar Agendamento": { "main": [[{ "node": "Responder - Agendamento Cancelado", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "note": "Workflow de apoio, não listado no Apêndice B do livro. Substitui 'sua API interna' nos workflows 01, 02 e no sub-agente de agendamento — configure API_BASE_URL para apontar pra base de webhooks deste workflow (ex: https://seu-n8n.com/webhook). Isso é um stand-in didático: numa aplicação real, essas rotas normalmente vivem na sua própria API (FastAPI, etc.), não no n8n."
+  }
+}

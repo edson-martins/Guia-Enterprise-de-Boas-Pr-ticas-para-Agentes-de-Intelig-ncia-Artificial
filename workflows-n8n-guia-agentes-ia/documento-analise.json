@@ -1,0 +1,154 @@
+{
+  "name": "Guia Enterprise — 10. Análise Estruturada de Documentos",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "documento-analise",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Documento Recebido",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-600, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$json.body.arquivo_url}}",
+        "options": { "response": { "response": { "responseFormat": "file" } } }
+      },
+      "id": "n2-http-baixar",
+      "name": "HTTP - Baixar Arquivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-380, 300]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "id": "n3-extract",
+      "name": "Extract From File - PDF para Texto",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [-160, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"model\": \"claude-sonnet-5\",\n  \"max_tokens\": 2000,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Extraia os seguintes campos deste contrato, em JSON estruturado: partes envolvidas (nome e documento), objeto do contrato, valor, data de início, data de término ou vigência, cláusulas de rescisão (resumo), e cláusulas de risco (qualquer cláusula que mereça atenção jurídica, com o motivo). Se um campo não existir no documento, use null. Responda APENAS o JSON, sem texto adicional.\\n\\nTexto do documento:\\n\" + $json.text\n  }]\n} }}",
+        "options": {}
+      },
+      "id": "n4-http-claude-extrair",
+      "name": "HTTP - Claude Extrair Dados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [60, 300]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "name": "dados_extraidos", "type": "object", "value": "={{JSON.parse($json.content[0].text)}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n5-set-parse",
+      "name": "Parsear Extração",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [280, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            { "leftValue": "={{$json.dados_extraidos.valor}}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } },
+            { "leftValue": "={{$json.dados_extraidos.objeto_do_contrato}}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n6-if-campos-criticos",
+      "name": "IF - Campos Críticos Presentes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO document_extractions (arquivo_url, dados_extraidos, status, criado_em)\nVALUES ('{{$node[\"Webhook - Documento Recebido\"].json.body.arquivo_url}}', '{{JSON.stringify($json.dados_extraidos).replace(/'/g, \"''\")}}'::jsonb, 'completo', now())",
+        "options": {}
+      },
+      "id": "n7-pg-salvar-completo",
+      "name": "Postgres - Salvar Extração Completa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, 220]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO document_extractions (arquivo_url, dados_extraidos, status, criado_em)\nVALUES ('{{$node[\"Webhook - Documento Recebido\"].json.body.arquivo_url}}', '{{JSON.stringify($json.dados_extraidos).replace(/'/g, \"''\")}}'::jsonb, 'revisao_humana_necessaria', now())",
+        "options": {}
+      },
+      "id": "n8-pg-salvar-incompleto",
+      "name": "Postgres - Salvar Para Revisão Humana",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"dados\": $node[\"Parsear Extração\"].json.dados_extraidos } }}",
+        "options": {}
+      },
+      "id": "n9-respond",
+      "name": "Responder - Extração Concluída",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Documento Recebido": { "main": [[{ "node": "HTTP - Baixar Arquivo", "type": "main", "index": 0 }]] },
+    "HTTP - Baixar Arquivo": { "main": [[{ "node": "Extract From File - PDF para Texto", "type": "main", "index": 0 }]] },
+    "Extract From File - PDF para Texto": { "main": [[{ "node": "HTTP - Claude Extrair Dados", "type": "main", "index": 0 }]] },
+    "HTTP - Claude Extrair Dados": { "main": [[{ "node": "Parsear Extração", "type": "main", "index": 0 }]] },
+    "Parsear Extração": { "main": [[{ "node": "IF - Campos Críticos Presentes?", "type": "main", "index": 0 }]] },
+    "IF - Campos Críticos Presentes?": {
+      "main": [
+        [{ "node": "Postgres - Salvar Extração Completa", "type": "main", "index": 0 }],
+        [{ "node": "Postgres - Salvar Para Revisão Humana", "type": "main", "index": 0 }]
+      ]
+    },
+    "Postgres - Salvar Extração Completa": { "main": [[{ "node": "Responder - Extração Concluída", "type": "main", "index": 0 }]] },
+    "Postgres - Salvar Para Revisão Humana": { "main": [[{ "node": "Responder - Extração Concluída", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "note": "Campos críticos ausentes não bloqueiam a extração — apenas marcam o registro para revisão humana em vez de uso automático direto, seguindo o princípio de guardrails do Capítulo 11."
+  }
+}

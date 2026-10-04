@@ -1,0 +1,554 @@
+{
+  "name": "Guia Enterprise — 04. Handoff Humano (Redis TTL)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "handoff-humano",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Mensagem Recebida (WAHA)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "name": "chat_id",
+              "type": "string",
+              "value": "={{$json.body.payload.from}}"
+            },
+            {
+              "name": "texto",
+              "type": "string",
+              "value": "={{$json.body.payload.body}}"
+            },
+            {
+              "name": "session",
+              "type": "string",
+              "value": "={{$json.body.session}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2-set",
+      "name": "Normalizar Mensagem",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "=handoff:{{$json.chat_id}}",
+        "options": {}
+      },
+      "id": "n3-redis-get",
+      "name": "Redis - Checar Modo Humano",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.propertyName}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n4-if-humano-ativo",
+      "name": "IF - Modo Humano Ativo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node[\"Normalizar Mensagem\"].json.texto.trim()}}",
+              "rightValue": "!encerrar",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n5-if-comando-encerrar",
+      "name": "IF - Comando !encerrar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "key": "=handoff:{{$node[\"Normalizar Mensagem\"].json.chat_id}}"
+      },
+      "id": "n6-redis-delete",
+      "name": "Redis - Encerrar Modo Humano",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        500,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $node[\"Normalizar Mensagem\"].json.session, \"chatId\": $node[\"Normalizar Mensagem\"].json.chat_id, \"text\": \"Atendimento automático reativado. Como posso ajudar?\" } }}",
+        "options": {}
+      },
+      "id": "n7-http-confirma-retorno",
+      "name": "HTTP - WAHA Confirmar Retorno ao Agente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO execution_logs (workflow_name, event_type, level, message, chat_id)\nVALUES ('handoff-humano', 'mensagem_ignorada_modo_humano', 'info', 'Mensagem recebida durante atendimento humano, IA não respondeu', '{{$node[\"Normalizar Mensagem\"].json.chat_id}}')",
+        "options": {}
+      },
+      "id": "n8-pg-log-ignorada",
+      "name": "Postgres - Logar Mensagem Ignorada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$node[\"Normalizar Mensagem\"].json.texto}}",
+        "options": {
+          "systemMessage": "Você é a atendente virtual. Se em algum momento identificar que o cliente precisa falar com uma pessoa (reclamação, assunto financeiro sensível, pedido explícito de humano, ou situação que você não consegue resolver), chame a ferramenta escalar_para_humano em vez de tentar resolver sozinho."
+        }
+      },
+      "id": "n9-agent",
+      "name": "AI Agent - Atendente",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        280,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-5",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "n10-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$node[\"Normalizar Mensagem\"].json.chat_id}}",
+        "contextWindowLength": 12
+      },
+      "id": "n11-memory",
+      "name": "Memória da Conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.2,
+      "position": [
+        360,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "escalar_para_humano",
+        "description": "Escala a conversa para um atendente humano. Use quando o cliente pedir explicitamente ou quando o assunto for sensível demais para a IA resolver.",
+        "method": "POST",
+        "url": "={{$env.N8N_BASE_URL}}/webhook/handoff-ativar",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"chat_id\": $node[\"Normalizar Mensagem\"].json.chat_id, \"motivo\": \"{motivo}\" } }}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "motivo",
+              "description": "Motivo breve da escalação",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "n12-tool-escalar",
+      "name": "escalar_para_humano",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $node[\"Normalizar Mensagem\"].json.session, \"chatId\": $node[\"Normalizar Mensagem\"].json.chat_id, \"text\": $json.output } }}",
+        "options": {}
+      },
+      "id": "n13-http-waha",
+      "name": "HTTP - WAHA Enviar Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "handoff-ativar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n14-webhook-ativar",
+      "name": "Webhook - Ativar Handoff (chamado pela Tool)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=handoff:{{$json.body.chat_id}}",
+        "value": "={{$json.body.motivo}}",
+        "expire": true,
+        "ttl": 3600
+      },
+      "id": "n15-redis-set",
+      "name": "Redis - Ativar Handoff (TTL 1h)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $env.WAHA_DEFAULT_SESSION, \"chatId\": $env.OPERATOR_WHATSAPP, \"text\": \"Novo handoff: \" + $json.body.chat_id + \" — motivo: \" + $json.body.motivo } }}",
+        "options": {}
+      },
+      "id": "n16-http-notifica-operador",
+      "name": "HTTP - Notificar Operador",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "n17-respond-ativar",
+      "name": "Responder - Handoff Ativado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        60,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "n18-respond-principal",
+      "name": "Responder Webhook Principal",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Mensagem Recebida (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Redis - Checar Modo Humano",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Checar Modo Humano": {
+      "main": [
+        [
+          {
+            "node": "IF - Modo Humano Ativo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Modo Humano Ativo?": {
+      "main": [
+        [
+          {
+            "node": "IF - Comando !encerrar?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent - Atendente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Comando !encerrar?": {
+      "main": [
+        [
+          {
+            "node": "Redis - Encerrar Modo Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Logar Mensagem Ignorada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Encerrar Modo Humano": {
+      "main": [
+        [
+          {
+            "node": "HTTP - WAHA Confirmar Retorno ao Agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Atendente",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória da Conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Atendente",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "escalar_para_humano": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Atendente",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Atendente": {
+      "main": [
+        [
+          {
+            "node": "HTTP - WAHA Enviar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - WAHA Enviar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook Principal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Ativar Handoff (chamado pela Tool)": {
+      "main": [
+        [
+          {
+            "node": "Redis - Ativar Handoff (TTL 1h)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Ativar Handoff (TTL 1h)": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Notificar Operador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Notificar Operador": {
+      "main": [
+        [
+          {
+            "node": "Responder - Handoff Ativado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

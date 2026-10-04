@@ -1,0 +1,85 @@
+{
+  "name": "Guia Enterprise — 03. FAQ Dinâmico (Google Sheets)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
+      },
+      "id": "n1-schedule",
+      "name": "Schedule - A Cada 15 Minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-400, 200]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "mode": "id", "value": "={{$env.FAQ_SHEET_ID}}" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "FAQ" },
+        "options": {}
+      },
+      "id": "n2-sheets",
+      "name": "Google Sheets - Ler FAQ",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-180, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO faq (business_id, pergunta, resposta, categoria, atualizado_em)\nVALUES ({{$env.DEFAULT_BUSINESS_ID}}, '{{$json.Pergunta}}', '{{$json.Resposta}}', '{{$json.Categoria}}', now())\nON CONFLICT (business_id, pergunta) DO UPDATE\nSET resposta = EXCLUDED.resposta, categoria = EXCLUDED.categoria, atualizado_em = now()",
+        "options": {}
+      },
+      "id": "n3-pg-upsert",
+      "name": "Postgres - Upsert FAQ",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [40, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "faq-consultar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n4-webhook",
+      "name": "Webhook - Consultar FAQ (usado como Tool)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 420]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT pergunta, resposta, categoria\nFROM faq\nWHERE business_id = {{$env.DEFAULT_BUSINESS_ID}}\n  AND (pergunta ILIKE '%' || '{{$json.body.termo_busca}}' || '%'\n       OR resposta ILIKE '%' || '{{$json.body.termo_busca}}' || '%')\nORDER BY atualizado_em DESC\nLIMIT 3",
+        "options": {}
+      },
+      "id": "n5-pg-buscar",
+      "name": "Postgres - Buscar FAQ por Termo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-180, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"resultados\": $input.all().map(item => item.json) } }}",
+        "options": {}
+      },
+      "id": "n6-respond",
+      "name": "Responder - Resultados FAQ",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [40, 420]
+    }
+  ],
+  "connections": {
+    "Schedule - A Cada 15 Minutos": { "main": [[{ "node": "Google Sheets - Ler FAQ", "type": "main", "index": 0 }]] },
+    "Google Sheets - Ler FAQ": { "main": [[{ "node": "Postgres - Upsert FAQ", "type": "main", "index": 0 }]] },
+    "Webhook - Consultar FAQ (usado como Tool)": { "main": [[{ "node": "Postgres - Buscar FAQ por Termo", "type": "main", "index": 0 }]] },
+    "Postgres - Buscar FAQ por Termo": { "main": [[{ "node": "Responder - Resultados FAQ", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

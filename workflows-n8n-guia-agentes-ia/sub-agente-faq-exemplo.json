@@ -1,0 +1,119 @@
+{
+  "name": "Guia Enterprise — 05c. Sub-Agente de FAQ (exemplo)",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "pergunta",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "n1-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.pergunta}}",
+        "options": {
+          "systemMessage": "Você é o Agente de FAQ. Responda dúvidas gerais do cliente usando exclusivamente a ferramenta consultar_faq — nunca invente uma resposta que não veio da base de FAQ. Se a busca não retornar nada relevante, diga claramente que não encontrou essa informação e sugira que o Agente Gerente escale para um humano. Responda de forma direta, em 1-3 frases."
+        }
+      },
+      "id": "n2-agent",
+      "name": "AI Agent - FAQ",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-haiku-4-5-20251001",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "n3-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -220,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "name": "consultar_faq",
+        "description": "Busca na base de perguntas frequentes por um termo. Use as palavras-chave mais relevantes da pergunta do cliente.",
+        "method": "POST",
+        "url": "={{$env.N8N_BASE_URL}}/webhook/faq-consultar",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"termo_busca\": $fromAI('termo_busca', 'palavras-chave da pergunta do cliente') } }}"
+      },
+      "id": "n4-tool-faq",
+      "name": "consultar_faq",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        -60,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - FAQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - FAQ",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_faq": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - FAQ",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "note": "Depende do workflow 03 (faq-dinamico-sheets.json) estar importado e ativo, já que consome o webhook /faq-consultar dele. Usa Haiku por ser uma tarefa de consulta simples — ver Capítulo 4.2 sobre arquitetura de modelos em camadas."
+  }
+}

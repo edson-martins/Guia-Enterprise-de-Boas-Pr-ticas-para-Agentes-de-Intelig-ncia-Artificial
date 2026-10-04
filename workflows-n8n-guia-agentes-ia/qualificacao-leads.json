@@ -1,0 +1,284 @@
+{
+  "name": "Guia Enterprise — 02. Qualificação de Leads",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qualificacao-leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Mensagem Recebida (WAHA)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "name": "chat_id",
+              "type": "string",
+              "value": "={{$json.body.payload.from}}"
+            },
+            {
+              "name": "texto",
+              "type": "string",
+              "value": "={{$json.body.payload.body}}"
+            },
+            {
+              "name": "session",
+              "type": "string",
+              "value": "={{$json.body.session}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2-set",
+      "name": "Normalizar Mensagem",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$node[\"Normalizar Mensagem\"].json.texto}}",
+        "options": {
+          "systemMessage": "Você é um assistente de qualificação de leads. Sua única tarefa é coletar, de forma natural e conversacional (nunca como formulário), estes 5 campos: nome completo, empresa, cargo, principal necessidade/dor, e prazo de decisão (imediato/3 meses/6 meses/sem prazo). Colete um ou dois campos por vez, nunca tudo de uma vez. Quando tiver os 5 campos, chame a ferramenta salvar_lead com os dados estruturados e agradeça ao lead informando que alguém da equipe vai retornar em breve. Nunca invente dados que o lead não informou."
+        }
+      },
+      "id": "n3-agent",
+      "name": "AI Agent - Qualificador",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-5",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "n4-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$node[\"Normalizar Mensagem\"].json.chat_id}}",
+        "contextWindowLength": 20
+      },
+      "id": "n5-memory",
+      "name": "Memória da Conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.2,
+      "position": [
+        120,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "salvar_lead",
+        "description": "Salva um lead qualificado depois que os 5 campos obrigatórios (nome, empresa, cargo, necessidade, prazo) foram coletados. Só chame quando tiver todos os 5.",
+        "method": "POST",
+        "url": "={{$env.API_BASE_URL}}/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.API_INTERNAL_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{$node[\\\"Normalizar Mensagem\\\"].json.chat_id}}\",\n  \"nome\": \"{nome}\",\n  \"empresa\": \"{empresa}\",\n  \"cargo\": \"{cargo}\",\n  \"necessidade\": \"{necessidade}\",\n  \"prazo\": \"{prazo}\"\n}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "nome",
+              "description": "Nome completo do lead",
+              "type": "string"
+            },
+            {
+              "name": "empresa",
+              "description": "Empresa do lead",
+              "type": "string"
+            },
+            {
+              "name": "cargo",
+              "description": "Cargo do lead na empresa",
+              "type": "string"
+            },
+            {
+              "name": "necessidade",
+              "description": "Principal necessidade ou dor relatada",
+              "type": "string"
+            },
+            {
+              "name": "prazo",
+              "description": "Prazo de decisão: imediato, 3 meses, 6 meses ou sem prazo",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "n6-tool-salvar",
+      "name": "salvar_lead",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $node[\"Normalizar Mensagem\"].json.session, \"chatId\": $node[\"Normalizar Mensagem\"].json.chat_id, \"text\": $json.output } }}",
+        "options": {}
+      },
+      "id": "n7-http-waha",
+      "name": "HTTP - WAHA Enviar Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "n8-respond",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Mensagem Recebida (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Qualificador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Qualificador",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória da Conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Qualificador",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "salvar_lead": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Qualificador",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Qualificador": {
+      "main": [
+        [
+          {
+            "node": "HTTP - WAHA Enviar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - WAHA Enviar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,227 @@
+{
+  "name": "Guia Enterprise — 05d. Sub-Agente de Agendamento (exemplo)",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "chat_id",
+              "type": "string"
+            },
+            {
+              "name": "mensagem",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "n1-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.mensagem}}",
+        "options": {
+          "systemMessage": "Você é o Agente de Agendamento. Cuida de marcar, remarcar e cancelar horários. Sempre use consultar_disponibilidade antes de confirmar qualquer novo horário — nunca assuma que um horário está livre. Depois de confirmado com o cliente, use criar_agendamento (para marcar) ou cancelar_agendamento (para cancelar/remarcar, que é cancelar o antigo e criar um novo). Nunca invente disponibilidade ou confirme algo antes de checar de verdade."
+        }
+      },
+      "id": "n2-agent",
+      "name": "AI Agent - Agendamento",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-5",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "n3-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -260,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$json.chat_id}}",
+        "contextWindowLength": 8
+      },
+      "id": "n4-memory",
+      "name": "Memória da Conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.2,
+      "position": [
+        -140,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "consultar_disponibilidade",
+        "description": "Consulta horários livres numa agenda para uma data específica. Use antes de propor ou confirmar qualquer horário.",
+        "method": "POST",
+        "url": "={{$env.N8N_BASE_URL}}/webhook/freebusy-consultar",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"calendar_id\": $env.DEFAULT_CALENDAR_ID, \"data\": $fromAI('data', 'data no formato AAAA-MM-DD') } }}"
+      },
+      "id": "n5-tool-disponibilidade",
+      "name": "consultar_disponibilidade",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        20,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "criar_agendamento",
+        "description": "Cria um novo agendamento depois que o cliente confirmou data e horário e a disponibilidade foi checada.",
+        "method": "POST",
+        "url": "={{$env.API_BASE_URL}}/appointments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.API_INTERNAL_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"chat_id\": $json.chat_id,\n  \"patient_name\": $fromAI('nome_paciente', 'nome do paciente'),\n  \"appointment_at\": $fromAI('data_hora', 'data e hora no formato ISO 8601'),\n  \"specialty\": $fromAI('especialidade', 'especialidade ou serviço solicitado')\n} }}"
+      },
+      "id": "n6-tool-criar",
+      "name": "criar_agendamento",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "cancelar_agendamento",
+        "description": "Cancela um agendamento existente. Use tanto para cancelamento definitivo quanto como primeiro passo de uma remarcação.",
+        "method": "PATCH",
+        "url": "={{$env.API_BASE_URL}}/appointments/cancel",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.API_INTERNAL_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"chat_id\": $json.chat_id, \"appointment_id\": $fromAI('appointment_id', 'ID do agendamento a cancelar, se conhecido, senão deixe vazio') } }}"
+      },
+      "id": "n7-tool-cancelar",
+      "name": "cancelar_agendamento",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        300,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Agendamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Agendamento",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória da Conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Agendamento",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_disponibilidade": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Agendamento",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "criar_agendamento": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Agendamento",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancelar_agendamento": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Agendamento",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "note": "Depende do workflow 09 (freebusy-cache.json) para a consulta de disponibilidade. As rotas /appointments e /appointments/cancel são da sua API interna (mesma usada pelos workflows 01/02) — adapte os nomes de campo pro seu schema real."
+  }
+}

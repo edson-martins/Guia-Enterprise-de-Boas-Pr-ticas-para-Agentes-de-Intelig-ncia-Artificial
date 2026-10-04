@@ -1,0 +1,137 @@
+{
+  "name": "Guia Enterprise — 07. Pipeline de Avaliação (Evals)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 6 * * *" }] }
+      },
+      "id": "n1-schedule",
+      "name": "Schedule - Todo Dia 06h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-400, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT chat_id, business_id, array_agg(json_build_object('role', role, 'content', content) ORDER BY created_at) as mensagens\nFROM conversation_messages\nWHERE created_at >= now() - interval '1 day'\nGROUP BY chat_id, business_id",
+        "options": {}
+      },
+      "id": "n2-pg-buscar-conversas",
+      "name": "Postgres - Buscar Conversas do Dia",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-180, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "id": "n3-loop",
+      "name": "Loop - Uma Conversa Por Vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [40, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"model\": \"claude-sonnet-5\",\n  \"max_tokens\": 500,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Avalie esta conversa de atendimento entre um agente de IA e um cliente, segundo os critérios: (1) resolveu o pedido do cliente, (2) tom apropriado, (3) não inventou informação, (4) escalou para humano quando deveria. Dê uma nota de 0 a 10 para cada critério e uma nota geral. Responda APENAS em JSON: {\\\"resolucao\\\": N, \\\"tom\\\": N, \\\"precisao\\\": N, \\\"escalacao_apropriada\\\": N, \\\"nota_geral\\\": N, \\\"justificativa\\\": \\\"...\\\"}.\\n\\nConversa:\\n\" + JSON.stringify($json.mensagens)\n  }]\n} }}",
+        "options": {}
+      },
+      "id": "n4-http-claude-avaliar",
+      "name": "HTTP - Claude Avaliar Conversa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 220]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "name": "avaliacao", "type": "object", "value": "={{JSON.parse($json.content[0].text)}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n5-set-parse",
+      "name": "Parsear Avaliação",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 220]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO conversation_evals (chat_id, business_id, resolucao, tom, precisao, escalacao_apropriada, nota_geral, justificativa, avaliado_em)\nVALUES (\n  '{{$node[\"Loop - Uma Conversa Por Vez\"].json.chat_id}}',\n  {{$node[\"Loop - Uma Conversa Por Vez\"].json.business_id}},\n  {{$json.avaliacao.resolucao}},\n  {{$json.avaliacao.tom}},\n  {{$json.avaliacao.precisao}},\n  {{$json.avaliacao.escalacao_apropriada}},\n  {{$json.avaliacao.nota_geral}},\n  '{{$json.avaliacao.justificativa}}',\n  now()\n)",
+        "options": {}
+      },
+      "id": "n6-pg-salvar-eval",
+      "name": "Postgres - Salvar Avaliação",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            { "leftValue": "={{$node[\"Parsear Avaliação\"].json.avaliacao.nota_geral}}", "rightValue": 5, "operator": { "type": "number", "operation": "lt" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n7-if-nota-baixa",
+      "name": "IF - Nota Geral < 5?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [920, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "X-Api-Key", "value": "={{$env.WAHA_API_KEY}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $env.WAHA_DEFAULT_SESSION, \"chatId\": $env.OPERATOR_WHATSAPP, \"text\": \"⚠️ Conversa com nota baixa (\" + $node[\"Parsear Avaliação\"].json.avaliacao.nota_geral + \"/10): \" + $node[\"Loop - Uma Conversa Por Vez\"].json.chat_id + \"\\nMotivo: \" + $node[\"Parsear Avaliação\"].json.avaliacao.justificativa } }}",
+        "options": {}
+      },
+      "id": "n8-http-alerta-qualidade",
+      "name": "HTTP - Alertar Qualidade Baixa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 140]
+    }
+  ],
+  "connections": {
+    "Schedule - Todo Dia 06h": { "main": [[{ "node": "Postgres - Buscar Conversas do Dia", "type": "main", "index": 0 }]] },
+    "Postgres - Buscar Conversas do Dia": { "main": [[{ "node": "Loop - Uma Conversa Por Vez", "type": "main", "index": 0 }]] },
+    "Loop - Uma Conversa Por Vez": { "main": [[], [{ "node": "HTTP - Claude Avaliar Conversa", "type": "main", "index": 0 }]] },
+    "HTTP - Claude Avaliar Conversa": { "main": [[{ "node": "Parsear Avaliação", "type": "main", "index": 0 }]] },
+    "Parsear Avaliação": { "main": [[{ "node": "Postgres - Salvar Avaliação", "type": "main", "index": 0 }]] },
+    "Postgres - Salvar Avaliação": { "main": [[{ "node": "IF - Nota Geral < 5?", "type": "main", "index": 0 }]] },
+    "IF - Nota Geral < 5?": {
+      "main": [
+        [{ "node": "HTTP - Alertar Qualidade Baixa", "type": "main", "index": 0 }],
+        [{ "node": "Loop - Uma Conversa Por Vez", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP - Alertar Qualidade Baixa": { "main": [[{ "node": "Loop - Uma Conversa Por Vez", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
