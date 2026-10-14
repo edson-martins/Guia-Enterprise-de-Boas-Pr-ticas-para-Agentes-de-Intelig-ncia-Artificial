@@ -28,7 +28,7 @@ Os workflows foram testados no n8n 1.123.82, a mesma versão citada na Nota lega
 - **Variáveis de ambiente.** A versão 2 bloqueia por padrão o acesso a `$env`. Defina `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` no ambiente da instância. Isso exige uma instalação própria (self-hosted); no n8n Cloud não é possível ler variáveis de ambiente.
 - **Publicação.** Na versão 2, salvar e publicar são etapas separadas. Depois de importar, use **Publish** para o workflow receber chamadas de produção.
 
-Os nós **HTTP Request Tool** (legado) e as versões 1.x do **AI Agent** usados aqui funcionam na 2.x, mas foram removidos no n8n 3.0. Uma versão destes arquivos para a 3.x será publicada neste repositório.
+Os nós **HTTP Request Tool** (legado) e as versões 1.x do **AI Agent** usados aqui funcionam na 2.x, mas a n8n anunciou a remoção deles na futura versão 3.0. Quando ela sair, uma versão atualizada destes arquivos será publicada neste repositório.
 
 ## Como importar
 
