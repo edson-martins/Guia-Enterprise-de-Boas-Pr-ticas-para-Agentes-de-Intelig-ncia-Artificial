@@ -7,17 +7,36 @@
       "name": "Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
-      "position": [-400, 300]
+      "position": [
+        -400,
+        300
+      ]
     },
     {
       "parameters": {
         "mode": "manual",
         "assignments": {
           "assignments": [
-            { "name": "workflow_com_erro", "type": "string", "value": "={{$json.workflow.name}}" },
-            { "name": "execution_id", "type": "string", "value": "={{$json.execution.id}}" },
-            { "name": "mensagem_erro", "type": "string", "value": "={{$json.execution.error.message}}" },
-            { "name": "node_com_erro", "type": "string", "value": "={{$json.execution.error.node.name}}" }
+            {
+              "name": "workflow_com_erro",
+              "type": "string",
+              "value": "={{$json.workflow.name}}"
+            },
+            {
+              "name": "execution_id",
+              "type": "string",
+              "value": "={{$json.execution.id}}"
+            },
+            {
+              "name": "mensagem_erro",
+              "type": "string",
+              "value": "={{$json.execution.error.message}}"
+            },
+            {
+              "name": "node_com_erro",
+              "type": "string",
+              "value": "={{$json.execution.error.node.name}}"
+            }
           ]
         },
         "options": {}
@@ -26,7 +45,10 @@
       "name": "Extrair Detalhes do Erro",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-180, 300]
+      "position": [
+        -180,
+        300
+      ]
     },
     {
       "parameters": {
@@ -38,14 +60,28 @@
       "name": "Postgres - Contar Tentativas Recentes",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [40, 300]
+      "position": [
+        40,
+        300
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
           "conditions": [
-            { "leftValue": "={{$json.tentativas}}", "rightValue": 3, "operator": { "type": "number", "operation": "lt" } }
+            {
+              "leftValue": "={{$json.tentativas}}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -55,32 +91,48 @@
       "name": "IF - Tentativas < 3?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [260, 300]
+      "position": [
+        260,
+        300
+      ]
     },
     {
       "parameters": {
-        "amount": "={{ Math.pow(2, $json.tentativas) * 30 }}",
+        "amount": "={{ Math.pow(2, $json.tentativas) * 30 + Math.floor(Math.random() * 10) }}",
         "unit": "seconds"
       },
       "id": "n5-wait-backoff",
       "name": "Wait - Backoff Exponencial",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [480, 220]
+      "position": [
+        480,
+        220
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{$env.N8N_API_BASE_URL}}/workflows/{{$node[\"Extrair Detalhes do Erro\"].json.workflow_com_erro}}/execute",
+        "url": "={{$env.N8N_API_BASE_URL}}/executions/{{$node[\"Extrair Detalhes do Erro\"].json.execution_id}}/retry",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "={{$env.N8N_API_KEY}}" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{$env.N8N_API_KEY}}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "n6-http-retry",
       "name": "HTTP - Re-executar Workflow",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [700, 220]
+      "position": [
+        700,
+        220
+      ]
     },
     {
       "parameters": {
@@ -92,14 +144,24 @@
       "name": "Postgres - Log de Retry",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [920, 220]
+      "position": [
+        920,
+        220
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "X-Api-Key", "value": "={{$env.WAHA_API_KEY}}" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"session\": $env.WAHA_DEFAULT_SESSION, \"chatId\": $env.OPERATOR_WHATSAPP, \"text\": \"🔴 Workflow \" + $node[\"Extrair Detalhes do Erro\"].json.workflow_com_erro + \" falhou 3x e parou de tentar sozinho.\\n\\nErro: \" + $node[\"Extrair Detalhes do Erro\"].json.mensagem_erro + \"\\nNode: \" + $node[\"Extrair Detalhes do Erro\"].json.node_com_erro + \"\\nExecution: \" + $node[\"Extrair Detalhes do Erro\"].json.execution_id } }}",
@@ -109,7 +171,10 @@
       "name": "HTTP - Alertar Operador (WAHA)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, 420]
+      "position": [
+        480,
+        420
+      ]
     },
     {
       "parameters": {
@@ -121,25 +186,102 @@
       "name": "Postgres - Log de Falha Definitiva",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [700, 420]
+      "position": [
+        700,
+        420
+      ]
     }
   ],
   "connections": {
-    "Error Trigger": { "main": [[{ "node": "Extrair Detalhes do Erro", "type": "main", "index": 0 }]] },
-    "Extrair Detalhes do Erro": { "main": [[{ "node": "Postgres - Contar Tentativas Recentes", "type": "main", "index": 0 }]] },
-    "Postgres - Contar Tentativas Recentes": { "main": [[{ "node": "IF - Tentativas < 3?", "type": "main", "index": 0 }]] },
-    "IF - Tentativas < 3?": {
+    "Error Trigger": {
       "main": [
-        [{ "node": "Wait - Backoff Exponencial", "type": "main", "index": 0 }],
-        [{ "node": "HTTP - Alertar Operador (WAHA)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Extrair Detalhes do Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Wait - Backoff Exponencial": { "main": [[{ "node": "HTTP - Re-executar Workflow", "type": "main", "index": 0 }]] },
-    "HTTP - Re-executar Workflow": { "main": [[{ "node": "Postgres - Log de Retry", "type": "main", "index": 0 }]] },
-    "HTTP - Alertar Operador (WAHA)": { "main": [[{ "node": "Postgres - Log de Falha Definitiva", "type": "main", "index": 0 }]] }
+    "Extrair Detalhes do Erro": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Contar Tentativas Recentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Contar Tentativas Recentes": {
+      "main": [
+        [
+          {
+            "node": "IF - Tentativas < 3?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Tentativas < 3?": {
+      "main": [
+        [
+          {
+            "node": "Wait - Backoff Exponencial",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Alertar Operador (WAHA)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Backoff Exponencial": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Re-executar Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Re-executar Workflow": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Log de Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Alertar Operador (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Log de Falha Definitiva",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "meta": {
     "note": "Configure este workflow como 'Error Workflow' nas Settings de qualquer outro workflow (Settings > Error Workflow) para que ele seja disparado automaticamente quando aquele workflow falhar."
   }

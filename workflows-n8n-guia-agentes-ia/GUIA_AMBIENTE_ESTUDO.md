@@ -56,7 +56,9 @@ você vai selecionar em todo node Postgres dos workflows importados.
 
 ## 4. Configure as variáveis de ambiente
 
-No n8n: **Settings → Variables** (ou `.env` da sua instância):
+Defina estas variáveis no ambiente da sua instância do n8n (arquivo `.env` ou `docker-compose.yml`) e reinicie o n8n. Os workflows leem os valores com `$env`. Não use **Settings → Variables**: as variáveis criadas ali são lidas com `$vars`, e os workflows não as enxergam.
+
+**Se você usa o n8n 2.x:** a versão 2 bloqueia por padrão o acesso a variáveis de ambiente. Inclua também `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` no ambiente da instância. Isso exige uma instalação própria (self-hosted); no n8n Cloud não é possível ler variáveis de ambiente.
 
 | Variável | Valor de exemplo | Obrigatória para |
 |---|---|---|
@@ -86,7 +88,7 @@ usada em todo node `Anthropic Chat Model`.
 
 A ordem importa porque alguns workflows chamam webhooks de outros.
 
-1. **`ambiente-estudo-api.json`** — importe e **ative**. Sem isso, os workflows 01, 02 e o sub-agente de agendamento não têm o que chamar.
+1. **`ambiente-estudo-api.json`** — importe e **ative** (no n8n 2.x, ativar é o botão **Publish**). Sem isso, os workflows 01, 02 e o sub-agente de agendamento não têm o que chamar.
 2. **`faq-dinamico-sheets.json`** (03) — importe e ative, mesmo sem configurar o Google Sheets ainda (a consulta via webhook já funciona com os dados de exemplo inseridos direto no banco).
 3. **`handoff-humano-redis.json`** (04) — precisa de uma credencial Redis também (veja passo 7).
 4. **`freebusy-cache.json`** (09) — precisa de credencial Google Calendar OAuth2 (opcional pra testar só os outros fluxos).

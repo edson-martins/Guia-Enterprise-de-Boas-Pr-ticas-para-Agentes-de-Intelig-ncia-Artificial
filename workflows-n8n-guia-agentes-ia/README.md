@@ -18,6 +18,25 @@ antes de importar qualquer workflow.
 aviso do Apêndice B): revise credenciais, URLs de webhook e prompts de
 sistema antes de qualquer uso em produção.
 
+## Versão do n8n
+
+Os workflows foram testados no n8n 1.123.82, a mesma versão citada na Nota legal do livro. No n8n 2.x, dois cuidados são necessários antes de testar:
+
+- **Variáveis de ambiente.** A versão 2 bloqueia por padrão o acesso a `$env`. Defina `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` no ambiente da instância (veja o passo 4 do `GUIA_AMBIENTE_ESTUDO.md`).
+- **Publicação.** Na versão 2, salvar e publicar são etapas separadas. Depois de importar, use **Publish** para o workflow receber chamadas de produção.
+
+Os nós **HTTP Request Tool** (legado) e as versões 1.x do **AI Agent** usados aqui funcionam na 2.x, mas foram removidos no n8n 3.0. Uma versão destes arquivos para a 3.x será publicada neste repositório.
+
+## Diferenças em relação aos fluxos do livro
+
+Os fluxos em YAML dos capítulos são didáticos. Estes arquivos são implementações de partida e, em alguns detalhes, fazem escolhas diferentes:
+
+- `handoff-humano-redis.json`: TTL do modo humano de 1 hora (no livro, 30 minutos).
+- `lembrete-agendamento.json`: verificação a cada 30 minutos (no livro, a cada hora).
+- `faq-dinamico-sheets.json`: o FAQ sincronizado fica no Postgres (no livro, em cache no Redis).
+- `avaliacao-pipeline.json`: avaliação diária às 6h (no livro, semanal).
+- `error-handler-backoff.json`: até 3 novas tentativas por hora, com espera de 30 s, 60 s e 120 s mais um valor aleatório, e alerta ao operador pelo WhatsApp.
+
 ## Como importar
 
 No painel do n8n: menu lateral → **Workflows** → **Import from File** →
