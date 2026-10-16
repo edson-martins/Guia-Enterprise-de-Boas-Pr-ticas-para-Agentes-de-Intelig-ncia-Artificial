@@ -1,0 +1,278 @@
+{
+  "name": "Enterprise Guide — 01. SMB Customer Service Base",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smb-customer-service",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Message Received (WAHA)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "name": "chat_id",
+              "type": "string",
+              "value": "={{$json.body.payload.from}}"
+            },
+            {
+              "name": "text",
+              "type": "string",
+              "value": "={{$json.body.payload.body}}"
+            },
+            {
+              "name": "session",
+              "type": "string",
+              "value": "={{$json.body.session}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2-set",
+      "name": "Normalize Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT business_id, name, instructions FROM business WHERE waha_session = '{{$json.session}}' AND active = true LIMIT 1",
+        "options": {}
+      },
+      "id": "n3-pg-business",
+      "name": "Postgres - Resolve Business",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$node[\"Normalize Message\"].json.text}}",
+        "options": {
+          "systemMessage": "=You are the virtual assistant of {{$json.name}}. Instructions specific to this business: {{$json.instructions}}. Reply in English, naturally and objectively, as if you were a member of the team. Use the available tools whenever you need information you do not already know. Never make up availability, prices or any data that should come from a tool."
+        }
+      },
+      "id": "n4-agent",
+      "name": "AI Agent - Assistant",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-5",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "n5-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        220,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$node[\"Normalize Message\"].json.chat_id}}",
+        "contextWindowLength": 12
+      },
+      "id": "n6-memory",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.2,
+      "position": [
+        340,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "get_business_info",
+        "description": "Looks up the opening hours, address and general information about the business. Use it whenever the customer asks something that is not in the system prompt.",
+        "method": "GET",
+        "url": "={{$env.API_BASE_URL}}/business-info/{{$node[\"Postgres - Resolve Business\"].json.business_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.API_INTERNAL_KEY}}"
+            }
+          ]
+        }
+      },
+      "id": "n7-tool-info",
+      "name": "get_business_info",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $node[\"Normalize Message\"].json.session, \"chatId\": $node[\"Normalize Message\"].json.chat_id, \"text\": $json.output } }}",
+        "options": {}
+      },
+      "id": "n8-http-waha",
+      "name": "HTTP - WAHA Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "n9-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Message Received (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Message": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Resolve Business",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Resolve Business": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Assistant",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Assistant",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_business_info": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Assistant": {
+      "main": [
+        [
+          {
+            "node": "HTTP - WAHA Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - WAHA Send Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

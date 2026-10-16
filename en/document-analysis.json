@@ -1,0 +1,302 @@
+{
+  "name": "Enterprise Guide — 10. Structured Document Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "document-analysis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Document Received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$json.body.file_url}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "n2-http-download",
+      "name": "HTTP - Download File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "id": "n3-extract",
+      "name": "Extract From File - PDF to Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"model\": \"claude-sonnet-5\",\n  \"max_tokens\": 2000,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Extract the following fields from this contract as structured JSON, using these keys: parties (name and ID document of each party), contract_subject, amount, start_date, end_date (or term), termination_clauses (summary) and risk_clauses (any clause that deserves legal attention, with the reason). If a field does not exist in the document, use null. Reply with the JSON ONLY, with no additional text.\\n\\nDocument text:\\n\" + $json.text\n  }]\n} }}",
+        "options": {}
+      },
+      "id": "n4-http-claude-extract",
+      "name": "HTTP - Claude Extract Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "name": "extracted_data",
+              "type": "object",
+              "value": "={{JSON.parse($json.content[0].text)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n5-set-parse",
+      "name": "Parse Extraction",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.extracted_data.amount}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "leftValue": "={{$json.extracted_data.contract_subject}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n6-if-critical-fields",
+      "name": "IF - Critical Fields Present?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO document_extractions (file_url, extracted_data, status, created_at)\nVALUES ('{{$node[\"Webhook - Document Received\"].json.body.file_url}}', '{{JSON.stringify($json.extracted_data).replace(/'/g, \"''\")}}'::jsonb, 'complete', now())",
+        "options": {}
+      },
+      "id": "n7-pg-save-complete",
+      "name": "Postgres - Save Complete Extraction",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO document_extractions (file_url, extracted_data, status, created_at)\nVALUES ('{{$node[\"Webhook - Document Received\"].json.body.file_url}}', '{{JSON.stringify($json.extracted_data).replace(/'/g, \"''\")}}'::jsonb, 'human_review_required', now())",
+        "options": {}
+      },
+      "id": "n8-pg-save-incomplete",
+      "name": "Postgres - Save for Human Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"data\": $node[\"Parse Extraction\"].json.extracted_data } }}",
+        "options": {}
+      },
+      "id": "n9-respond",
+      "name": "Respond - Extraction Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        940,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Document Received": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Download File": {
+      "main": [
+        [
+          {
+            "node": "Extract From File - PDF to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract From File - PDF to Text": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Claude Extract Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Claude Extract Data": {
+      "main": [
+        [
+          {
+            "node": "Parse Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extraction": {
+      "main": [
+        [
+          {
+            "node": "IF - Critical Fields Present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Critical Fields Present?": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Save Complete Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Save for Human Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Save Complete Extraction": {
+      "main": [
+        [
+          {
+            "node": "Respond - Extraction Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Save for Human Review": {
+      "main": [
+        [
+          {
+            "node": "Respond - Extraction Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "note": "Missing critical fields do not block the extraction. They only flag the record for human review instead of direct automatic use, following the guardrails principle in Chapter 11."
+  }
+}

@@ -1,0 +1,362 @@
+{
+  "name": "Enterprise Guide — 05. Multi-Agent (Manager Pattern)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "multi-agent-manager",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "Webhook - Message Received (WAHA)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "name": "chat_id",
+              "type": "string",
+              "value": "={{$json.body.payload.from}}"
+            },
+            {
+              "name": "text",
+              "type": "string",
+              "value": "={{$json.body.payload.body}}"
+            },
+            {
+              "name": "session",
+              "type": "string",
+              "value": "={{$json.body.session}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2-set",
+      "name": "Normalize Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$node[\"Normalize Message\"].json.text}}",
+        "options": {
+          "systemMessage": "You are the Manager Agent. You do NOT answer the customer directly on specialized matters. You decide which specialist agent to call (triage, FAQ, scheduling or technical support), send that agent the context it needs, receive its answer, and decide whether the conversation is resolved or whether another specialist must be called next. Synthesize the final answer for the customer cohesively, as if a single person were replying."
+        }
+      },
+      "id": "n3-agent-manager",
+      "name": "AI Agent - Manager",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-5",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "n4-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$node[\"Normalize Message\"].json.chat_id}}",
+        "contextWindowLength": 12
+      },
+      "id": "n5-memory",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.2,
+      "position": [
+        110,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "name": "triage_agent",
+        "description": "Classifies the customer's intent (question, scheduling, technical support, complaint, other) and extracts relevant initial data. Call it first, whenever the intent is not yet clear.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_TRIAGE_SUB_AGENT_ID"
+        },
+        "workflowInputs": {
+          "value": {
+            "message": "={{ $fromAI('message', 'customer message to classify') }}"
+          }
+        }
+      },
+      "id": "n6-tool-triage",
+      "name": "triage_agent",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "name": "faq_agent",
+        "description": "Answers general questions by searching the FAQ base. Call it when triage indicates 'question' or a general question about the business.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_FAQ_SUB_AGENT_ID"
+        },
+        "workflowInputs": {
+          "value": {
+            "question": "={{ $fromAI('question', 'customer question') }}"
+          }
+        }
+      },
+      "id": "n7-tool-faq",
+      "name": "faq_agent",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        340,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "name": "scheduling_agent",
+        "description": "Handles booking, rescheduling or cancelling appointments in the calendar. Call it when triage indicates 'scheduling'.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_SCHEDULING_SUB_AGENT_ID"
+        },
+        "workflowInputs": {
+          "value": {
+            "chat_id": "={{$node[\"Normalize Message\"].json.chat_id}}",
+            "message": "={{ $fromAI('message', 'customer scheduling request') }}"
+          }
+        }
+      },
+      "id": "n8-tool-scheduling",
+      "name": "scheduling_agent",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "name": "tech_support_agent",
+        "description": "Solves technical problems reported by the customer. Call it when triage indicates 'tech_support'.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_SUPPORT_SUB_AGENT_ID"
+        },
+        "workflowInputs": {
+          "value": {
+            "chat_id": "={{$node[\"Normalize Message\"].json.chat_id}}",
+            "problem": "={{ $fromAI('problem', 'description of the technical problem') }}"
+          }
+        }
+      },
+      "id": "n9-tool-support",
+      "name": "tech_support_agent",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        580,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $node[\"Normalize Message\"].json.session, \"chatId\": $node[\"Normalize Message\"].json.chat_id, \"text\": $json.output } }}",
+        "options": {}
+      },
+      "id": "n10-http-waha",
+      "name": "HTTP - WAHA Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "n11-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1020,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Message Received (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Message": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "triage_agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "faq_agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scheduling_agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tech_support_agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Manager",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Manager": {
+      "main": [
+        [
+          {
+            "node": "HTTP - WAHA Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - WAHA Send Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "name": "Enterprise Guide — 08. Appointment Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "n1-schedule",
+      "name": "Schedule - Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, chat_id, patient_name, appointment_at, calendar_event_id, business_id\nFROM appointments\nWHERE status = 'scheduled'\n  AND reminder_sent_at IS NULL\n  AND appointment_at BETWEEN now() + interval '23 hours' AND now() + interval '25 hours'",
+        "options": {}
+      },
+      "id": "n2-pg-fetch-upcoming",
+      "name": "Postgres - Fetch Upcoming Appointments (24h)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "n3-loop",
+      "name": "Loop - One Appointment at a Time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WAHA_BASE_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{$env.WAHA_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session\": $env.WAHA_DEFAULT_SESSION, \"chatId\": $json.chat_id, \"text\": \"Hi \" + $json.patient_name + \"! Just a reminder about your appointment tomorrow, \" + $json.appointment_at + \". If you need to reschedule or cancel, just let me know here.\" } }}",
+        "options": {}
+      },
+      "id": "n4-http-reminder",
+      "name": "HTTP - WAHA Send Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE appointments SET reminder_sent_at = now() WHERE id = {{$json.id}}",
+        "options": {}
+      },
+      "id": "n5-pg-mark-sent",
+      "name": "Postgres - Mark Reminder Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule - Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Fetch Upcoming Appointments (24h)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Fetch Upcoming Appointments (24h)": {
+      "main": [
+        [
+          {
+            "node": "Loop - One Appointment at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - One Appointment at a Time": {
+      "main": [
+        [],
+        [
+          {
+            "node": "HTTP - WAHA Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - WAHA Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Mark Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Mark Reminder Sent": {
+      "main": [
+        [
+          {
+            "node": "Loop - One Appointment at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "note": "The 23 to 25 hour window avoids sending the reminder twice, since the schedule runs every 30 minutes. Adjust the intervals to the advance notice that makes sense for your business."
+  }
+}
