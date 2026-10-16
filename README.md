@@ -1,3 +1,8 @@
+> 🇺🇸 **English edition:** the workflows for *Enterprise Guide to Best Practices for Artificial Intelligence Agents* are in the [`en`](./en) folder. Start with [`en/README.md`](./en/README.md).
+>
+> 🇧🇷 **Edição em português:** os arquivos desta página são da versão em português do livro.
+
+---
 # Workflows n8n do Guia Enterprise de Agentes de IA
 
 Repositório de recursos do livro **Guia Enterprise de Boas Práticas para Agentes de Inteligência Artificial: da automação ao raciocínio autônomo: arquitetura, design, segurança e escala com n8n** (Edson Martins, 1. ed., 2026).
